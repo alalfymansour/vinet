@@ -68,6 +68,17 @@ func serviceStatus() string {
 		}
 		return "openrc: stopped"
 	}
+	if _, err := exec.LookPath("sv"); err == nil {
+		cmd := exec.Command("sv", "status", "vinet")
+		output, _ := cmd.CombinedOutput()
+		status := strings.TrimSpace(string(output))
+		if strings.HasPrefix(status, "run:") {
+			return "runit: running"
+		} else if strings.Contains(status, "access denied") {
+			return "runit: unknown (requires root)"
+		}
+		return "runit: down"
+	}
 	return "not detected"
 }
 
