@@ -117,4 +117,4 @@ else
     warn "No systemd or OpenRC detected. Start the daemon manually with:"
     echo "  nohup ${INSTALL_DIR}/vinet daemon >> ${LOG_DIR}/daemon.log 2>&1 &"
 fi
-echo; info "Done! Run 'vinet' to open the TUI, or 'vinet -l' for live traffic."
+echo; info "Done! Run 'vinet' to open the TUI, or 'vinet -h' for help and usage."
