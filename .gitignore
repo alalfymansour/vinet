@@ -1,6 +1,9 @@
 # Compiled binary
 /vinet
 
+# GoReleaser / local build output
+/dist/
+
 # Local databases (should never be committed)
 *.db
 *.db-journal

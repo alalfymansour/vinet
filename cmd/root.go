@@ -4,12 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
 	"github.com/alalfymansour/vinet/internal/db"
@@ -26,29 +22,9 @@ var (
 	versionFlag bool
 )
 
-// timeFilters maps user-facing ranges to SQLite datetime modifiers.
-var timeFilters = map[string]string{
-	"today": "start of day",
-	"24h":   "-1 day",
-	"week":  "-7 days",
-	"7d":    "-7 days",
-	"month": "start of month",
-	"30d":   "-30 days",
-}
-
-var timeLabels = map[string]string{
-	"today": "today",
-	"24h":   "last 24 hours",
-	"week":  "this week",
-	"7d":    "last 7 days",
-	"month": "this month",
-	"30d":   "last 30 days",
-}
-
-var downStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // green
-var upStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))  // orange
-var dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-var boldStyle = lipgloss.NewStyle().Bold(true)
+// Version is replaced during release builds with -ldflags
+// (-X github.com/alalfymansour/vinet/cmd.Version=<tag>).
+var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "vinet [process]",
@@ -78,7 +54,7 @@ Examples:
 		if statusFlag {
 			return runStatus()
 		}
-		filter, ok := timeFilters[timeFlag]
+		filter, ok := db.TimeFilters[timeFlag]
 		if !ok {
 			return fmt.Errorf("invalid --time value %q (want: today, 24h, week, 7d, month, 30d)", timeFlag)
 		}
@@ -89,15 +65,20 @@ Examples:
 		}
 		defer database.Close()
 
+		process := ""
+		if len(args) > 0 {
+			process = args[0]
+		}
+
 		// MODE 1: live CLI view (optionally scoped to one process)
 		if liveFlag {
-			runLive(database, args)
+			ui.Live(database, process)
 			return nil
 		}
 
 		// MODE 2: quick CLI query for one process
-		if len(args) > 0 {
-			return runQuery(database, args[0], filter)
+		if process != "" {
+			return ui.RunQuery(database, process, filter, db.TimeLabels[timeFlag])
 		}
 
 		// MODE 3: TUI dashboard
@@ -138,122 +119,6 @@ func applyTimeShortcut(cmd *cobra.Command) error {
 		timeFlag = "week"
 	}
 	return nil
-}
-
-func runQuery(database *sql.DB, processName, filter string) error {
-	var down, up int64
-	args := []any{processName, filter}
-	err := database.QueryRow(fmt.Sprintf(`
-		SELECT COALESCE(SUM(bytes_recv), 0), COALESCE(SUM(bytes_sent), 0)
-		FROM traffic
-		WHERE process_name = ? AND timestamp >= datetime('now', ?)
-	`), args...).Scan(&down, &up)
-	if err != nil {
-		return err
-	}
-
-	if down == 0 && up == 0 {
-		fmt.Printf("No traffic recorded for '%s' %s.\n", processName, timeLabels[timeFlag])
-		return nil
-	}
-
-	fmt.Printf("ViNet - Usage for '%s' (%s):\n", processName, timeLabels[timeFlag])
-	fmt.Printf("  ↓ Download: %s\n", downStyle.Render(db.FormatBytes(down)))
-	fmt.Printf("  ↑ Upload:   %s\n", upStyle.Render(db.FormatBytes(up)))
-	return nil
-}
-
-// runLive prints a continuously refreshing, non-TUI view of current traffic
-// rates. If a process name was given, it is scoped to that process only.
-func runLive(database *sql.DB, args []string) {
-	processFilter := ""
-	var queryArgs []any
-	if len(args) > 0 {
-		processFilter = " AND process_name = ?"
-		queryArgs = append(queryArgs, args[0])
-	}
-	query := fmt.Sprintf(`
-		SELECT process_name, COALESCE(SUM(bytes_recv), 0), COALESCE(SUM(bytes_sent), 0), MAX((julianday('now') - julianday(MIN(timestamp))) * 86400.0, 1)
-		FROM traffic
-		WHERE timestamp >= datetime('now', '-30 seconds')%s
-		GROUP BY process_name
-		ORDER BY SUM(bytes_recv) + SUM(bytes_sent) DESC;
-	`, processFilter)
-
-	type liveRow struct {
-		name     string
-		down, up int64
-		seconds  float64
-	}
-
-	render := func() {
-		rows, err := database.Query(query, queryArgs...)
-		if err != nil {
-			fmt.Println("Query error:", err)
-			return
-		}
-		defer rows.Close()
-
-		var data []liveRow
-		var totalDown, totalUp int64
-		for rows.Next() {
-			var r liveRow
-			if err := rows.Scan(&r.name, &r.down, &r.up, &r.seconds); err != nil {
-				continue
-			}
-			data = append(data, r)
-			totalDown += int64(float64(r.down) / r.seconds)
-			totalUp += int64(float64(r.up) / r.seconds)
-		}
-
-		// Clear screen and draw the frame.
-		fmt.Print("\033[H\033[2J")
-		fmt.Println(boldStyle.Render("ViNet — Live"), dimStyle.Render(time.Now().Format("15:04:05")))
-
-		if len(data) == 0 {
-			fmt.Println(dimStyle.Render("No traffic in the last 30 seconds. Is the daemon running?"))
-			return
-		}
-
-		fmt.Printf("  %-24s %16s %16s\n", "PROCESS", "DOWN RATE", "UP RATE")
-		for _, r := range data {
-			down := db.FormatBytes(int64(float64(r.down)/r.seconds)) + "/s"
-			up := db.FormatBytes(int64(float64(r.up)/r.seconds)) + "/s"
-			fmt.Printf("  %s %s %s\n",
-				liveText(r.name, 24, false, lipgloss.NewStyle()),
-				liveText(down, 16, true, downStyle),
-				liveText(up, 16, true, upStyle),
-			)
-		}
-		fmt.Println()
-		fmt.Printf("  %s %s   %s %s\n",
-			dimStyle.Render("↓ Total:"),
-			downStyle.Render(db.FormatBytes(totalDown)+"/s"),
-			dimStyle.Render("↑ Total:"),
-			upStyle.Render(db.FormatBytes(totalUp)+"/s"),
-		)
-	}
-
-	render()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		render()
-	}
-}
-
-func liveText(value string, width int, rightAlign bool, style lipgloss.Style) string {
-	value = runewidth.Truncate(value, width, "…")
-	padding := width - runewidth.StringWidth(value)
-	if rightAlign {
-		value = strings.Repeat(" ", padding) + value
-	} else {
-		value += strings.Repeat(" ", padding)
-	}
-	if style.GetForeground() != nil {
-		return style.Render(value)
-	}
-	return value
 }
 
 func Execute() {
