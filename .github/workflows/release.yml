@@ -16,9 +16,9 @@ jobs:
         with:
           go-version: '1.26.x'
       - name: Install eBPF build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev linux-libc-dev gcc
       - name: Generate eBPF bindings
-        run: go generate ./...
+        run: CPATH="/usr/include/$(gcc -print-multiarch)" go generate ./...
       - name: Build release binaries
         run: |
           mkdir -p dist
