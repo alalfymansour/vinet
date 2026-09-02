@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
 	"github.com/alalfymansour/vinet/internal/db"
@@ -175,8 +177,7 @@ func runLive(database *sql.DB, args []string) {
 		FROM traffic
 		WHERE timestamp >= datetime('now', '-30 seconds')%s
 		GROUP BY process_name
-		ORDER BY SUM(bytes_recv) + SUM(bytes_sent) DESC
-		LIMIT 10;
+		ORDER BY SUM(bytes_recv) + SUM(bytes_sent) DESC;
 	`, processFilter)
 
 	type liveRow struct {
@@ -214,12 +215,14 @@ func runLive(database *sql.DB, args []string) {
 			return
 		}
 
-		fmt.Printf("  %-18s %16s %16s\n", "PROCESS", "DOWN", "UP")
+		fmt.Printf("  %-24s %16s %16s\n", "PROCESS", "DOWN RATE", "UP RATE")
 		for _, r := range data {
-			fmt.Printf("  %-18s %16s %16s\n",
-				r.name,
-				downStyle.Render(db.FormatBytes(int64(float64(r.down)/r.seconds))+"/s"),
-				upStyle.Render(db.FormatBytes(int64(float64(r.up)/r.seconds))+"/s"),
+			down := db.FormatBytes(int64(float64(r.down)/r.seconds)) + "/s"
+			up := db.FormatBytes(int64(float64(r.up)/r.seconds)) + "/s"
+			fmt.Printf("  %s %s %s\n",
+				liveText(r.name, 24, false, lipgloss.NewStyle()),
+				liveText(down, 16, true, downStyle),
+				liveText(up, 16, true, upStyle),
 			)
 		}
 		fmt.Println()
@@ -237,6 +240,20 @@ func runLive(database *sql.DB, args []string) {
 	for range ticker.C {
 		render()
 	}
+}
+
+func liveText(value string, width int, rightAlign bool, style lipgloss.Style) string {
+	value = runewidth.Truncate(value, width, "…")
+	padding := width - runewidth.StringWidth(value)
+	if rightAlign {
+		value = strings.Repeat(" ", padding) + value
+	} else {
+		value += strings.Repeat(" ", padding)
+	}
+	if style.GetForeground() != nil {
+		return style.Render(value)
+	}
+	return value
 }
 
 func Execute() {

@@ -1,4 +1,8 @@
-# ViNet
+<p align="center">
+  <img src="vinet.svg" alt="ViNet logo" width="180">
+</p>
+
+<h1 align="center">ViNet</h1>
 
 ViNet is a small Linux tool that shows which processes are using your
 network and how much data they send and receive. It uses eBPF for collection,
@@ -6,32 +10,44 @@ SQLite for local storage, and a terminal dashboard for viewing the results.
 
 ## Install
 
-The installer builds ViNet on the machine where it will run. That is
-currently required because the eBPF program is compiled for the local system.
+The installer detects whether the machine is Linux `amd64` or `arm64`, then
+downloads the matching prebuilt ViNet release binary. Go, Clang, LLVM, and
+libbpf development headers are not required on the target machine.
 
-### Install dependencies automatically
+### Install the latest release
 
 On Debian, Fedora, Arch, or Gentoo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alalfymansour/vinet/main/install.sh | bash -s -- --install-deps
+curl -fsSL https://github.com/alalfymansour/vinet/raw/refs/heads/main/install.sh | bash
 ```
 
-The installer asks for root access, installs missing build packages, builds
-ViNet, installs the command, and starts the background collector.
+The installer asks for root access, detects the CPU architecture, downloads
+the matching release asset, installs the command and icon, and starts the
+background collector.
 
-### Install with existing dependencies
+### Install from a checkout
 
 ```bash
 sudo ./install.sh
 ```
 
-The required tools are Go 1.26+, Clang, LLVM, libbpf development headers,
-curl or wget, and tar. If something is missing, the installer prints the
-package command for your distribution.
+This uses the same prebuilt release flow. Only `curl` or `wget` is required
+for downloading, plus `sudo` for installation.
 
-When run from a checkout, the installer uses that checkout. When run through
-the curl command, it downloads the latest source first.
+### Build from source for development
+
+Release users should use the prebuilt installer above. Developers building
+locally need Go 1.26+, Clang, LLVM, libbpf development headers, and the usual
+build tools:
+
+```bash
+go generate ./...
+go build -o vinet .
+```
+
+Tagged releases are built automatically for Linux `amd64` and `arm64` and
+publish `vinet-linux-amd64`, `vinet-linux-arm64`, and `SHA256SUMS` assets.
 
 ## What gets installed
 

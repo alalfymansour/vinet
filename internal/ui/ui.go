@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/alalfymansour/vinet/internal/db"
 )
@@ -20,6 +21,15 @@ var (
 	upStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#af3a03", Dark: "#fe8019"})
 	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7c6f64", Dark: "#928374"})
 	boldStyle = lipgloss.NewStyle().Bold(true)
+	greenDot  = lipgloss.NewStyle().Foreground(lipgloss.Color("#b8bb26"))
+	redDot    = lipgloss.NewStyle().Foreground(lipgloss.Color("#fb4934"))
+	// Keep header and cell content at exactly the same column origin. Padding
+	// here is applied differently by the table widget to headers and rows.
+	tableHeader = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#665c54", Dark: "#d5c4a1"}).Align(lipgloss.Left)
+	// Leave the foreground unset so the selected-row style can color the
+	// process currently under the cursor.
+	tableCell     = lipgloss.NewStyle()
+	tableSelected = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#7c4f00", Dark: "#fabd2f"}).Background(lipgloss.AdaptiveColor{Light: "#fbf1c7", Dark: "#3c3836"})
 )
 
 // sortModes cycles with the "s" key.
@@ -42,6 +52,7 @@ type model struct {
 	searching      bool
 	width          int
 	height         int
+	showHelp       bool
 }
 
 type tickMsg time.Time
@@ -53,7 +64,7 @@ func tick() tea.Cmd {
 }
 
 func InitialModel(database *sql.DB, interfaceIndex int) model {
-	return model{
+	m := model{
 		db:             database,
 		table:          setupSummaryTable(),
 		timeRange:      "start of day",
@@ -63,22 +74,36 @@ func InitialModel(database *sql.DB, interfaceIndex int) model {
 		width:          80,
 		height:         24,
 	}
+	// Populate the first frame before Bubble Tea starts. Without this, the
+	// dashboard stays empty until the first refresh tick fires.
+	if database != nil {
+		m.updateSummary()
+	}
+	return m
 }
 
 func setupSummaryTable() table.Model {
-	return table.New(table.WithColumns(summaryColumns()), table.WithRows([]table.Row{}), table.WithHeight(12))
+	t := table.New(table.WithColumns(summaryColumns()), table.WithRows([]table.Row{}), table.WithHeight(12))
+	t.SetStyles(dataTableStyles())
+	return t
 }
 
 func setupDetailTable() table.Model {
-	return table.New(table.WithColumns(detailColumns()), table.WithRows([]table.Row{}), table.WithHeight(12))
+	t := table.New(table.WithColumns(detailColumns()), table.WithRows([]table.Row{}), table.WithHeight(12))
+	t.SetStyles(dataTableStyles())
+	return t
+}
+
+func dataTableStyles() table.Styles {
+	return table.Styles{Header: tableHeader, Cell: tableCell, Selected: tableSelected}
 }
 
 func summaryColumns() []table.Column {
-	return []table.Column{{Title: "Process", Width: 20}, {Title: "Down Rate", Width: 14}, {Title: "Total Down", Width: 22}, {Title: "Total Up", Width: 22}}
+	return []table.Column{{Title: "Process", Width: 20}, {Title: "Total Down", Width: 22}, {Title: "Total Up", Width: 22}, {Title: "Down Rate", Width: 14}}
 }
 
 func compactSummaryColumns() []table.Column {
-	return []table.Column{{Title: "Proc", Width: 14}, {Title: "Rate", Width: 10}, {Title: "Down", Width: 16}, {Title: "Up", Width: 16}}
+	return []table.Column{{Title: "Proc", Width: 14}, {Title: "Down", Width: 16}, {Title: "Up", Width: 16}, {Title: "Rate", Width: 10}}
 }
 func detailColumns() []table.Column {
 	return []table.Column{{Title: "Destination IP", Width: 20}, {Title: "Total Down", Width: 22}, {Title: "Total Up", Width: 22}}
@@ -129,6 +154,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = true
+			return m, nil
+		case "esc":
+			if m.showHelp {
+				m.showHelp = false
+				return m, nil
+			}
+			if m.viewMode == "detail" {
+				m.viewMode = "summary"
+				m.selected = ""
+				m.table = setupSummaryTable()
+				m.resizeTable()
+				m.updateSummary()
+			}
+			return m, nil
 		case "j", "down":
 			if rows := m.table.Rows(); len(rows) > 0 && m.table.Cursor() < len(rows)-1 {
 				m.table.SetCursor(m.table.Cursor() + 1)
@@ -199,14 +240,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateDetail()
 				}
 			}
-		case "esc":
-			if m.viewMode == "detail" {
-				m.viewMode = "summary"
-				m.selected = ""
-				m.table = setupSummaryTable()
-				m.resizeTable()
-				m.updateSummary()
-			}
 		}
 	}
 
@@ -239,8 +272,10 @@ func (m *model) resizeTable() {
 		}
 	}
 	// table.SetHeight includes its header; the view also has a header, two
-	// separators, and a footer. Keep the rendered output within the terminal.
-	height := m.height - 6
+	// separators, a footer, the table's two border rows, and renderer padding.
+	// Keep the complete view below the terminal height; exceeding it makes
+	// Bubble Tea continuously scroll the terminal instead of repainting it.
+	height := m.height - 12
 	if height < 3 {
 		height = 3
 	}
@@ -340,7 +375,6 @@ func (m *model) updateSummary() {
 	`+interfaceFilter+processFilter+`
 		GROUP BY process_name
 		ORDER BY SUM(bytes_recv) DESC
-		LIMIT 12;
 	`, args...)
 	if err != nil {
 		m.err = err.Error()
@@ -407,23 +441,13 @@ func (m *model) updateSummary() {
 		sort.Slice(data, func(i, j int) bool { return data[i].down > data[j].down })
 	}
 
-	maxDown, maxUp := int64(1), int64(1)
-	for _, d := range data {
-		if d.down > maxDown {
-			maxDown = d.down
-		}
-		if d.up > maxUp {
-			maxUp = d.up
-		}
-	}
-
 	var newRows []table.Row
 	for _, d := range data {
 		newRows = append(newRows, table.Row{
 			d.name,
-			downStyle.Render(db.FormatBytes(liveRates[d.name]) + "/s"),
-			fmt.Sprintf("%s %s", renderBar(d.down, maxDown, 8), downStyle.Render(db.FormatBytes(d.down))),
-			fmt.Sprintf("%s %s", renderBar(d.up, maxUp, 8), upStyle.Render(db.FormatBytes(d.up))),
+			db.FormatBytes(d.down),
+			db.FormatBytes(d.up),
+			db.FormatBytes(liveRates[d.name]) + "/s",
 		})
 	}
 	m.table.SetRows(newRows)
@@ -444,7 +468,6 @@ func (m *model) updateDetail() {
 	`+interfaceFilter+`
 		GROUP BY dest_ip, dest_port, protocol, ifindex
 		ORDER BY SUM(bytes_recv) + SUM(bytes_sent) DESC
-		LIMIT 12;
 	`, args...)
 	if err != nil {
 		m.err = err.Error()
@@ -480,42 +503,21 @@ func (m *model) updateDetail() {
 	}
 	rows.Close()
 
-	maxDown, maxUp := int64(1), int64(1)
-	for _, d := range data {
-		if d.down > maxDown {
-			maxDown = d.down
-		}
-		if d.up > maxUp {
-			maxUp = d.up
-		}
-	}
-
 	var newRows []table.Row
 	for _, d := range data {
 		newRows = append(newRows, table.Row{
 			d.ip,
-			fmt.Sprintf("%s %s", renderBar(d.down, maxDown, 8), downStyle.Render(db.FormatBytes(d.down))),
-			fmt.Sprintf("%s %s", renderBar(d.up, maxUp, 8), upStyle.Render(db.FormatBytes(d.up))),
+			db.FormatBytes(d.down),
+			db.FormatBytes(d.up),
 		})
 	}
 	m.table.SetRows(newRows)
 }
 
-func renderBar(val, max int64, width int) string {
-	if max == 0 {
-		return strings.Repeat("░", width)
-	}
-	filled := int(float64(val) / float64(max) * float64(width))
-	if filled > width {
-		filled = width
-	}
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-}
-
 func (m model) View() string {
 	baseStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240"))
+		BorderForeground(lipgloss.Color("#b57614"))
 	if m.width > 2 {
 		baseStyle = baseStyle.Width(m.width - 2)
 	}
@@ -529,26 +531,139 @@ func (m model) View() string {
 				dimStyle.Render("↑ Total:"), upStyle.Render(db.FormatBytes(m.totalUp)),
 				dimStyle.Render(fmt.Sprintf("Sort: %s", sortModes[m.sortMode])),
 			)
-			header += "    " + dimStyle.Render(m.health)
-			footer = dimStyle.Render("d/D day  w/W week  m/M month  •  s sort  •  / search  •  h back  •  l details  •  j/k select  •  q quit")
+			header += "    " + collectorDot(m.health)
+			footer = dimStyle.Render("d/D day  w/W week  m/M month  •  s sort  •  / search  •  h back  •  l details  •  j/k select  •  ? help  •  q quit")
 		} else {
 			header = boldStyle.Render(fmt.Sprintf("ViNet · %s · ↓ %s · ↑ %s", m.timeLabel, db.FormatBytes(m.totalDown), db.FormatBytes(m.totalUp)))
-			footer = dimStyle.Render("d/D day  w/W week  m/M month • s sort • / search • h back • l details • j/k select • q quit")
+			footer = dimStyle.Render("d/D day  w/W week  m/M month • s sort • / search • h back • l details • j/k select • ? help • q quit")
 		}
 		if m.searching {
 			footer = dimStyle.Render("Search: " + m.filter + "_  enter apply • esc close")
 		}
 	} else {
 		header = boldStyle.Render(fmt.Sprintf("ViNet · IPs for '%s' (%s)", m.selected, m.timeLabel))
-		footer = dimStyle.Render("h back  •  q quit")
+		footer = dimStyle.Render("h back  •  ? help  •  q quit")
 	}
 
 	if m.err != "" {
 		return fmt.Sprintf("%s\n\n%s\n\n%s", header, dimStyle.Render("Database error: "+m.err), footer)
 	}
-	tableView := m.table.View()
+	if m.showHelp {
+		return fmt.Sprintf("%s\n\n%s\n\n%s", header, renderHelp(), dimStyle.Render("press ? or esc to close"))
+	}
+	tableView := renderTable(m)
 	if m.width > 120 {
 		tableView = lipgloss.NewStyle().Width(m.width - 2).Align(lipgloss.Center).Render(tableView)
 	}
-	return fmt.Sprintf("%s\n\n%s\n\n%s", header, baseStyle.Render(tableView), footer)
+	return fmt.Sprintf("%s\n%s\n%s", header, baseStyle.Render(tableView), footer)
+}
+
+func renderTable(m model) string {
+	rows := m.table.Rows()
+	columns := []int{24, 20, 20, 18}
+	titles := []string{"Process", "Total Down", "Total Up", "Down Rate"}
+	if m.viewMode == "detail" {
+		columns = []int{28, 24, 24}
+		titles = []string{"Destination / Protocol", "Total Down", "Total Up"}
+	}
+	maxWidth := m.width - 6
+	if maxWidth > 116 {
+		maxWidth = 116
+	}
+	if maxWidth < 50 {
+		maxWidth = 50
+	}
+	if m.width < 100 {
+		if m.viewMode == "summary" {
+			columns = []int{16, 15, 15, 12}
+		} else {
+			columns = []int{20, 15, 15}
+		}
+	}
+	columns = fitRenderColumns(columns, maxWidth)
+
+	lines := []string{renderTableLine(titles, columns, false)}
+	visible := m.height - 15
+	if visible < 1 {
+		visible = 1
+	}
+	start := 0
+	if m.table.Cursor() >= visible {
+		start = m.table.Cursor() - visible + 1
+	}
+	if start > len(rows)-visible {
+		start = len(rows) - visible
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + visible
+	if end > len(rows) {
+		end = len(rows)
+	}
+	for i := start; i < end; i++ {
+		line := renderTableLine(rows[i], columns, true)
+		if i == m.table.Cursor() {
+			line = tableSelected.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fitRenderColumns(columns []int, width int) []int {
+	total := 0
+	for _, n := range columns {
+		total += n
+	}
+	if total >= width {
+		return columns
+	}
+	columns[len(columns)-1] += width - total
+	return columns
+}
+
+func renderTableLine(values []string, widths []int, header bool) string {
+	parts := make([]string, len(widths))
+	for i, width := range widths {
+		value := ""
+		if i < len(values) {
+			value = values[i]
+		}
+		value = runewidth.Truncate(value, width, "…")
+		if i == 0 {
+			parts[i] = value + strings.Repeat(" ", width-runewidth.StringWidth(value))
+		} else {
+			parts[i] = strings.Repeat(" ", width-runewidth.StringWidth(value)) + value
+		}
+	}
+	line := strings.Join(parts, "  ")
+	if header {
+		return tableHeader.Render(line)
+	}
+	return tableCell.Render(line)
+}
+
+func renderHelp() string {
+	return strings.Join([]string{
+		boldStyle.Render("ViNet keyboard help"),
+		"",
+		"d / D   today / last 24 hours",
+		"w / W   this week / last 7 days",
+		"m / M   this month / last 30 days",
+		"s       sort by download, upload, or rate",
+		"j / k   move selection and scroll",
+		"enter   open process details",
+		"/       search processes",
+		"h       return from details",
+		"?       show this help",
+		"q       quit",
+	}, "\n")
+}
+
+func collectorDot(health string) string {
+	if health == "collector: active" {
+		return greenDot.Render("●")
+	}
+	return redDot.Render("●")
 }

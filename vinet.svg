@@ -1,13 +1,11 @@
 <svg width="100%" viewBox="0 0 680 680" role="img" xmlns="http://www.w3.org/2000/svg">
   <title>ViNet icon</title>
-  <desc>Terminal prompt beside compact upload and download arrows</desc>
+  <desc>Enlarged terminal prompt beside upload and download arrows</desc>
 
-  <!-- Gruvbox Dark Hard palette: bg #1d2021, surface #282828,
-       foreground #ebdbb2, orange #fe8019, yellow #fabd2f, aqua #8ec07c. -->
-  <rect x="16" y="16" width="648" height="648" rx="28" fill="#1d2021"/>
-  <rect x="17.5" y="17.5" width="645" height="645" rx="26.5" fill="none" stroke="#3c3836" stroke-width="3"/>
+  <!-- Transparent background; the mark is intentionally scaled up for small
+       desktop and launcher sizes. -->
 
-  <g transform="translate(-170 -170) scale(1.5)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="10">
+  <g transform="translate(340 340) scale(3.5) translate(-340 -340)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="10">
     <!-- shell prompt -->
     <polyline points="365,270 405,340 365,410" stroke="#fabd2f"/>
 
