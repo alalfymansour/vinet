@@ -113,8 +113,29 @@ EOF
     info "ViNet installed and started via Systemd!"
 elif command -v rc-update >/dev/null 2>&1; then
     warn "OpenRC detected. Install packaging/openrc/vinet from the source checkout."
+elif command -v sv >/dev/null 2>&1; then
+    info "Runit detected. Installing service..."
+    sv stop vinet >/dev/null 2>&1 || true
+    mkdir -p /etc/sv/vinet/log
+    cat > /etc/sv/vinet/run <<'SVEOF'
+#!/bin/sh
+# ViNet eBPF Network Tracker — runit service
+exec 2>&1
+export VINET_DB=/var/lib/vinet/data.db
+umask 0007
+exec /usr/local/bin/vinet daemon
+SVEOF
+    cat > /etc/sv/vinet/log/run <<'SVEOF'
+#!/bin/sh
+# ViNet runit log service
+mkdir -p /var/log/vinet
+exec svlogd -tt /var/log/vinet
+SVEOF
+    chmod +x /etc/sv/vinet/run /etc/sv/vinet/log/run
+    ln -sf /etc/sv/vinet /var/service/
+    info "ViNet installed and started via runit!"
 else
-    warn "No systemd or OpenRC detected. Start the daemon manually with:"
+    warn "No systemd, OpenRC, or runit detected. Start the daemon manually with:"
     echo "  nohup ${INSTALL_DIR}/vinet daemon >> ${LOG_DIR}/daemon.log 2>&1 &"
 fi
 echo; info "Done! Run 'vinet' to open the TUI, or 'vinet -h' for help and usage."
