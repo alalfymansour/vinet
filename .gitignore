@@ -1,0 +1,17 @@
+# Compiled binary
+/vinet
+
+# Local databases (should never be committed)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+*.swp
+*~

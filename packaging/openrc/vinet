@@ -1,0 +1,23 @@
+#!/sbin/openrc-run
+
+description="ViNet eBPF Network Tracker"
+umask 0007
+command="/usr/local/bin/vinet"
+command_args="daemon"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/vinet/daemon.log"
+error_log="/var/log/vinet/daemon.log"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath -d -o root:vinet -m 2770 /var/lib/vinet
+	if [ -e /var/lib/vinet/data.db ]; then
+		chown root:vinet /var/lib/vinet/data.db
+		chmod 0660 /var/lib/vinet/data.db
+	fi
+}

@@ -1,0 +1,34 @@
+version: 2
+
+project_name: vinet
+
+builds:
+  - main: .
+    binary: vinet
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+      - install.sh
+
+nfpms:
+  - package_name: vinet
+    vendor: ViNet contributors
+    homepage: https://github.com/alalfymansour/vinet
+    maintainer: ViNet contributors
+    description: Per-process Linux network usage tracker powered by eBPF
+    license: GPL-2.0
+    formats: [deb, rpm]
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  draft: false
+  prerelease: auto
