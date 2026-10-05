@@ -1,0 +1,4 @@
+#!/bin/sh
+# ViNet runit log service
+mkdir -p /var/log/vinet
+exec svlogd -tt /var/log/vinet

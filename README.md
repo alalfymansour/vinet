@@ -21,7 +21,7 @@ terminal interface to display usage by process and destination.
 ## Install
 
 One-liner — downloads the prebuilt binary for Linux `amd64` or `arm64` and
-starts the collector service when systemd is available. No build tools needed.
+starts the collector service when systemd or runit is available. No build tools needed.
 
 ```bash
 curl -fsSL https://github.com/alalfymansour/vinet/raw/refs/heads/main/install.sh | bash
@@ -58,8 +58,15 @@ go build -o vinet .
 ## Uninstall
 
 ```bash
+# Stop and remove runit service (Void Linux)
+sudo sv stop vinet 2>/dev/null || true
+sudo rm -rf /etc/sv/vinet /var/service/vinet
+
+# Stop and remove systemd service
 sudo systemctl disable --now vinet 2>/dev/null || true
 sudo rm -f /usr/local/bin/vinet /etc/systemd/system/vinet.service
+
+# Remove shared files
 sudo rm -f /usr/share/applications/vinet.desktop
 sudo rm -f /usr/share/icons/hicolor/scalable/apps/vinet.svg
 ```

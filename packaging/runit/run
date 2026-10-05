@@ -1,0 +1,6 @@
+#!/bin/sh
+# ViNet eBPF Network Tracker — runit service
+exec 2>&1
+export VINET_DB=/var/lib/vinet/data.db
+umask 0007
+exec /usr/local/bin/vinet daemon
